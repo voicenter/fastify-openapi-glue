@@ -1,4 +1,5 @@
 const fp = require("fastify-plugin");
+const jwt = require('jsonwebtoken');
 const parser = require("./lib/parser");
 
 function isObject(obj) {
@@ -61,6 +62,50 @@ async function fastifyOpenapiGlue(instance, opts) {
     routeConf.prefix = config.prefix;
   }
 
+		/**
+		 * @param request {request}
+		 * @param entity {string} name of object or field, used for error handling
+		 * @return {Promise.<void>}
+		 */
+	async function checkJWT(request, entity) {
+			if (!('authorization' in request.headers)) throw new Error(`Missing authorization header for ${entity}`);
+			const token = request.headers['authorization'].split(' ')[1];
+			let payload;
+
+			// check if the token is expired or broken
+			try {
+					payload = jwt.verify(token, process.env.SALT || 'salt');
+			} catch (err) {
+					throw new Error(`${err.name} ${err.message} for ${entity}`);
+			}
+
+			// console.log(payload.entityID);
+			// TODO find token entity
+			//if (!tokenTentity) throw new error('Token entity not found');
+			// TODO Implement rights check
+			// if (roles && !roles.includes(entny.role)) throw new error('You have no permission to access ${entity}');
+	}
+
+	async function checkAccess(request, item) {
+			if (item.schema) {
+					const schema = item.schema;
+					// TODO extend rule for more x-auth-type
+					if (schema.body['x-auth-type'] === "Basic") {
+							await checkJWT(request, schema.operationId);
+					}
+					if (schema && schema.body) {
+							const properties = schema.body.properties;
+							for (const key in properties) {
+									if (!properties.hasOwnProperty(key)) continue;
+									// TODO extend rule for more x-auth-type
+									if (properties[key]['x-auth-type'] === "Basic") {
+											await checkJWT(request, `${schema.operationId} ${key}`);
+									}
+							}
+					}
+			}
+	}
+
   async function generateRoutes(routesInstance, opts) {
     config.routes.forEach(item => {
       const response = item.schema.response;
@@ -69,7 +114,11 @@ async function fastifyOpenapiGlue(instance, opts) {
       }
       if (service[item.operationId]) {
         routesInstance.log.debug("service has", item.operationId);
-        item.handler = service[item.operationId];
+
+        item.handler = async (request, reply) => {
+		      await checkAccess(request, item);
+          return service[item.operationId](request, reply);
+        };
       } else {
         item.handler = async (request, reply) => {
           throw new Error(`Operation ${item.operationId} not implemented`);
