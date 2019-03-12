@@ -1,4 +1,5 @@
 const fp = require("fastify-plugin");
+const ip = require('ip');
 const jwt = require('jsonwebtoken');
 const parser = require("./lib/parser");
 
@@ -40,7 +41,7 @@ function stripResponseFormats(schema) {
 
 async function fastifyOpenapiGlue(instance, opts) {
   const service = getObject(opts.service);
-  if (!isObject(service)) {
+		if (!isObject(service)) {
     throw new Error("'service' parameter must refer to an object");
   }
 
@@ -74,23 +75,33 @@ async function fastifyOpenapiGlue(instance, opts) {
 
 			// check if the token is expired or broken
 			try {
-					payload = jwt.verify(token, process.env.SALT || 'salt');
+					payload = jwt.verify(token, service.publicKey, {algorithm:  "RS256"});
 			} catch (err) {
 					throw new Error(`${err.name} ${err.message} for ${entity}`);
 			}
 
-			// console.log(payload.entityID);
-			// TODO find token entity
-			//if (!tokenTentity) throw new error('Token entity not found');
-			// TODO Implement rights check
-			// if (roles && !roles.includes(entny.role)) throw new error('You have no permission to access ${entity}');
+			const {IpList, Expiration, Permissions} =  payload;
+
+			// check that client IP in token range
+			if (IpList && IpList.length) {
+			  const ipInAllowedRange = IpList.some(ipRange => ip.cidrSubnet(ipRange).contains(request.req.ip));
+				if (!ipInAllowedRange) throw new Error('IP address if out of range you permit for') ;
+			}
+
+			// check expiration date
+				if (Expiration && (Date.parse(Expiration) < Date.now())) {
+						throw new Error('Token expired') ;
+				}
+
+			// TODO Implement permissions check
+
 	}
 
 	async function checkAccess(request, item) {
 			if (item.schema) {
 					const schema = item.schema;
 					// TODO extend rule for more x-auth-type
-					if (schema.body['x-auth-type'] === "Basic") {
+					if (item.openapiSource['x-AuthType'] === "Basic") {
 							await checkJWT(request, schema.operationId);
 					}
 					if (schema && schema.body) {
@@ -98,7 +109,7 @@ async function fastifyOpenapiGlue(instance, opts) {
 							for (const key in properties) {
 									if (!properties.hasOwnProperty(key)) continue;
 									// TODO extend rule for more x-auth-type
-									if (properties[key]['x-auth-type'] === "Basic") {
+									if (properties[key]['x-AuthType'] === "Basic") {
 											await checkJWT(request, `${schema.operationId} ${key}`);
 									}
 							}
@@ -114,9 +125,8 @@ async function fastifyOpenapiGlue(instance, opts) {
       }
       if (service[item.operationId]) {
         routesInstance.log.debug("service has", item.operationId);
-
         item.handler = async (request, reply) => {
-		      await checkAccess(request, item);
+		      if (service.checkToken) await checkAccess(request, item);
           return service[item.operationId](request, reply);
         };
       } else {
