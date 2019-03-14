@@ -93,8 +93,7 @@ async function fastifyOpenapiGlue(instance, opts) {
 						throw new Error('Token expired') ;
 				}
 
-			// TODO Implement permissions check
-
+				request.permissions = Permissions;
 	}
 
 	async function checkAccess(request, item) {
@@ -109,8 +108,8 @@ async function fastifyOpenapiGlue(instance, opts) {
 							for (const key in properties) {
 									if (!properties.hasOwnProperty(key)) continue;
 									// TODO extend rule for more x-auth-type
-									if (properties[key]['x-AuthType'] === "Basic") {
-											await checkJWT(request, `${schema.operationId} ${key}`);
+									if (properties[key]['x-AuthFieldType']) {
+											console.log(properties[key], key);
 									}
 							}
 					}
