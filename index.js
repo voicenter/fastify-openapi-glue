@@ -80,7 +80,7 @@ async function fastifyOpenapiGlue(instance, opts) {
 					throw new Error(`${err.name} ${err.message} for ${entity}`);
 			}
 
-			const {IpList, Expiration, Permissions} =  payload;
+			const {IpList, Expiration, Role} =  payload;
 
 			// check that client IP in token range
 			if (IpList && IpList.length) {
@@ -93,21 +93,23 @@ async function fastifyOpenapiGlue(instance, opts) {
 						throw new Error('Token expired') ;
 				}
 
-				request.permissions = Permissions;
+				request.Roles = Role;
 	}
 
 	async function checkAccess(request, item) {
 			if (item.schema) {
 					const schema = item.schema;
 					// TODO extend rule for more x-auth-type
-					if (item.openapiSource['x-AuthType'] === "Basic") {
+					const xAuthTypes = item.openapiSource['x-AuthType'];
+					if (xAuthTypes.length && !xAuthTypes.some(el => el === "None")) {
+							request.xAuthTypes = xAuthTypes;
 							await checkJWT(request, schema.operationId);
 					}
+					// TODO remove after debug
 					if (schema && schema.body) {
 							const properties = schema.body.properties;
 							for (const key in properties) {
 									if (!properties.hasOwnProperty(key)) continue;
-									// TODO extend rule for more x-auth-type
 									if (properties[key]['x-AuthFieldType']) {
 											console.log(properties[key], key);
 									}
