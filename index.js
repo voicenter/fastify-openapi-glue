@@ -75,7 +75,7 @@ async function fastifyOpenapiGlue(instance, opts) {
 
 			// check if the token is expired or broken
 			try {
-					payload = jwt.verify(token, service.publicKey, {algorithm:  "RS256"});
+					payload = jwt.verify(token, global.PUBLIC_KEY, {algorithm:  "RS256"});
 			} catch (err) {
 					throw new Error(`${err.name} ${err.message} for ${entity}`);
 			}
@@ -125,9 +125,10 @@ async function fastifyOpenapiGlue(instance, opts) {
         stripResponseFormats(response);
       }
       if (service[item.operationId]) {
-        routesInstance.log.debug("service has", item.operationId);
+        routesInstance.log.debug("service has", item.operationId    );
+        console.log(service[item.operationId]);
         item.handler = async (request, reply) => {
-		      if (service.checkToken) await checkAccess(request, item);
+		      if (global.CHECK_TOKEN) await checkAccess(request, item);
           return service[item.operationId](request, reply);
         };
       } else {
