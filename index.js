@@ -126,7 +126,6 @@ async function fastifyOpenapiGlue(instance, opts) {
       }
       if (service[item.operationId]) {
         routesInstance.log.debug("service has", item.operationId    );
-        console.log(service[item.operationId]);
         item.handler = async (request, reply) => {
 		      if (global.CHECK_TOKEN) await checkAccess(request, item);
           return service[item.operationId](request, reply);
