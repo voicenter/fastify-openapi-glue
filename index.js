@@ -80,7 +80,7 @@ async function fastifyOpenapiGlue(instance, opts) {
 					throw new Error(`${err.name} ${err.message} for ${entity}`);
 			}
 
-			const {IpList, Expiration, Role} =  payload;
+			const {IpList, Role} =  payload;
 
 			// check that client IP in token range
 			if (IpList && IpList.length) {
@@ -88,12 +88,7 @@ async function fastifyOpenapiGlue(instance, opts) {
 				if (!ipInAllowedRange) throw new Error('IP address if out of range you permit for') ;
 			}
 
-			// check expiration date
-				if (Expiration && (Date.parse(Expiration) < Date.now())) {
-						throw new Error('Token expired') ;
-				}
-
-				request.Roles = Role;
+			request.Roles = Role;
 	}
 
 	async function checkAccess(request, item) {
