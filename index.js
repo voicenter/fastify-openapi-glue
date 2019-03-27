@@ -1,4 +1,6 @@
 const fp = require("fastify-plugin");
+const ip = require('ip');
+const jwt = require('jsonwebtoken');
 const parser = require("./lib/parser");
 
 function isObject(obj) {
@@ -39,7 +41,7 @@ function stripResponseFormats(schema) {
 
 async function fastifyOpenapiGlue(instance, opts) {
   const service = getObject(opts.service);
-  if (!isObject(service)) {
+		if (!isObject(service)) {
     throw new Error("'service' parameter must refer to an object");
   }
 
@@ -61,6 +63,56 @@ async function fastifyOpenapiGlue(instance, opts) {
     routeConf.prefix = config.prefix;
   }
 
+		/**
+		 * @param request {request}
+		 * @param entity {string} name of object or field, used for error handling
+		 * @return {Promise.<void>}
+		 */
+	async function checkJWT(request, entity) {
+			if (!('authorization' in request.headers)) throw new Error(`Missing authorization header for ${entity}`);
+			const token = request.headers['authorization'].split(' ')[1];
+			let payload;
+
+			// check if the token is expired or broken
+			try {
+					payload = jwt.verify(token, global.PUBLIC_KEY, {algorithm:  "RS256"});
+			} catch (err) {
+					throw new Error(`${err.name} ${err.message} for ${entity}`);
+			}
+
+			const {IpList, Role} =  payload;
+
+			// check that client IP in token range
+			if (IpList && IpList.length) {
+			  const ipInAllowedRange = IpList.some(ipRange => ip.cidrSubnet(ipRange).contains(request.req.ip));
+				if (!ipInAllowedRange) throw new Error('IP address if out of range you permit for') ;
+			}
+
+			request.Roles = Role;
+	}
+
+	async function checkAccess(request, item) {
+			if (item.schema) {
+					const schema = item.schema;
+					// TODO extend rule for more x-auth-type
+					const xAuthTypes = item.openapiSource['x-AuthType'];
+					if (xAuthTypes.length && !xAuthTypes.some(el => el === "None")) {
+							request.xAuthTypes = xAuthTypes;
+							await checkJWT(request, schema.operationId);
+					}
+					// TODO remove after debug
+					if (schema && schema.body) {
+							const properties = schema.body.properties;
+							for (const key in properties) {
+									if (!properties.hasOwnProperty(key)) continue;
+									if (properties[key]['x-AuthFieldType']) {
+											console.log(properties[key], key);
+									}
+							}
+					}
+			}
+	}
+
   async function generateRoutes(routesInstance, opts) {
     config.routes.forEach(item => {
       const response = item.schema.response;
@@ -68,8 +120,11 @@ async function fastifyOpenapiGlue(instance, opts) {
         stripResponseFormats(response);
       }
       if (service[item.operationId]) {
-        routesInstance.log.debug("service has", item.operationId);
-        item.handler = service[item.operationId];
+        routesInstance.log.debug("service has", item.operationId    );
+        item.handler = async (request, reply) => {
+		      if (global.CHECK_TOKEN) await checkAccess(request, item);
+          return service[item.operationId](request, reply);
+        };
       } else {
         item.handler = async (request, reply) => {
           throw new Error(`Operation ${item.operationId} not implemented`);
