@@ -130,7 +130,7 @@ async function fastifyOpenapiGlue(instance, opts) {
 				    opts.metricItems[`${controllerName}_success`] = pm2io.meter({name: `${controllerName}[success]`, type: 'meter'});
 		    }
 
-		    const reqSec = pm2io.meter({name: `${item.operationId}[total`, type: 'meter'});
+		    const reqSec = pm2io.meter({name: `${item.operationId}[total]`, type: 'meter'});
         item.preValidation = async (request, reply, done) => {
 				      reqSec.mark();
 				      request.controllerName = item.operationId;
