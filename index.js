@@ -1,6 +1,7 @@
 const fp = require("fastify-plugin");
 const ip = require('ip');
 const jwt = require('jsonwebtoken');
+const pm2io = require('@pm2/io');
 const parser = require("./lib/parser");
 
 function isObject(obj) {
@@ -113,17 +114,31 @@ async function fastifyOpenapiGlue(instance, opts) {
 			}
 	}
 
-  async function generateRoutes(routesInstance, opts) {
+  async function generateRoutes(routesInstance, opt) {
     config.routes.forEach(item => {
       const response = item.schema.response;
       if (response) {
         stripResponseFormats(response);
       }
+
       if (service[item.operationId]) {
-        routesInstance.log.debug("service has", item.operationId    );
+        routesInstance.log.debug("service has", item.operationId);
+		    const controllerName = item.operationId;
+
+		    if (opts.metricItems) {
+		    		opts.metricItems[`${controllerName}_failed`] = pm2io.meter({name: `${controllerName}[failed]`, type: 'meter'});
+				    opts.metricItems[`${controllerName}_success`] = pm2io.meter({name: `${controllerName}[success]`, type: 'meter'});
+		    }
+
+		    const reqSec = pm2io.meter({name: `${item.operationId}[total`, type: 'meter'});
+        item.preValidation = async (request, reply, done) => {
+				      reqSec.mark();
+				      request.controllerName = item.operationId;
+				      if (global.CHECK_TOKEN) await checkAccess(request, item);
+		    };
+        item.preHandler = async (request, reply, done) => {};
         item.handler = async (request, reply) => {
-		      if (global.CHECK_TOKEN) await checkAccess(request, item);
-          return service[item.operationId](request, reply);
+		      return service[item.operationId](request, reply);
         };
       } else {
         item.handler = async (request, reply) => {
