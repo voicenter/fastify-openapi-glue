@@ -126,18 +126,15 @@ async function fastifyOpenapiGlue(instance, opts) {
 		    const controllerName = item.operationId;
 
 		    if (opts.metricItems) {
-		    		// Add controller metric items for total/failed/success. Metric suffixes should be declared in metricItems object of calling module
-		    		['total', 'success', 'failed'].map(el => {
-						    opts.metricItems[`${controllerName}${opts.metricItems.suffix[el]}`] = pm2io.meter({name: `${controllerName}${opts.metricItems.suffix[el]}`, type: 'meter'});
-				    })
+		    		opts.metricItems[`${controllerName}_failed`] = pm2io.meter({name: `${controllerName}[failed]`, type: 'meter'});
+				    opts.metricItems[`${controllerName}_success`] = pm2io.meter({name: `${controllerName}[success]`, type: 'meter'});
 		    }
 
+		    const reqSec = pm2io.meter({name: `${item.operationId}[total]`, type: 'meter'});
         item.preValidation = async (request, reply, done) => {
-		      if (opts.metricItems && opts.metricItems[`${controllerName}${opts.metricItems.suffix.total}`]) {
-				    opts.metricItems[`${controllerName}${opts.metricItems.suffix.total}`].mark();
-		      }
-				  request.controllerName = item.operationId;
-				  if (global.CHECK_TOKEN) await checkAccess(request, item);
+				      reqSec.mark();
+				      request.controllerName = item.operationId;
+				      if (global.CHECK_TOKEN) await checkAccess(request, item);
 		    };
         item.preHandler = async (request, reply, done) => {};
         item.handler = async (request, reply) => {
