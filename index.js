@@ -1,7 +1,6 @@
 const fp = require("fastify-plugin");
 const ip = require('ip');
 const jwt = require('jsonwebtoken');
-const pm2io = require('@pm2/io');
 const parser = require("./lib/parser");
 
 function isObject(obj) {
@@ -122,21 +121,14 @@ async function fastifyOpenapiGlue(instance, opts) {
       }
 
       if (service[item.operationId]) {
-        routesInstance.log.debug("service has", item.operationId);
 		    const controllerName = item.operationId;
-
-		    if (opts.metricItems) {
-		    		// Add controller metric items for total/failed/success. Metric suffixes should be declared in metricItems object of calling module
-		    		['total', 'success', 'failed'].map(el => {
-						    opts.metricItems[`${controllerName}${opts.metricItems.suffix[el]}`] = pm2io.meter({name: `${controllerName}${opts.metricItems.suffix[el]}`, type: 'meter'});
-				    })
-		    }
+        routesInstance.log.debug("service has", controllerName);
 
         item.preValidation = async (request, reply, done) => {
-		      if (opts.metricItems && opts.metricItems[`${controllerName}${opts.metricItems.suffix.total}`]) {
-				    opts.metricItems[`${controllerName}${opts.metricItems.suffix.total}`].mark();
+		      if (opts.metrics && opts.metrics[`${controllerName}${opts.metrics.suffix.total}`]) {
+				    opts.metrics[`${controllerName}${opts.metrics.suffix.total}`].mark();
 		      }
-				  request.controllerName = item.operationId;
+				  request.controllerName = controllerName;
 				  if (global.CHECK_TOKEN) await checkAccess(request, item);
 		    };
         item.preHandler = async (request, reply, done) => {};
