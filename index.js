@@ -123,7 +123,6 @@ async function fastifyOpenapiGlue(instance, opts) {
       if (service[item.operationId]) {
         const controllerName = item.operationId;
         routesInstance.log.debug("service has", controllerName);
-        const reqSec = pm2io.meter({name: `${item.operationId}[total]`, type: 'meter'});
         item.preValidation = async (request, reply, done) => {
           if (opts.metrics && opts.metrics[`${controllerName}${opts.metrics.suffix.total}`]) {
             opts.metrics[`${controllerName}${opts.metrics.suffix.total}`].mark();
