@@ -1,7 +1,6 @@
 const fp = require("fastify-plugin");
 const ip = require('ip');
 const jwt = require('jsonwebtoken');
-const pm2io = require('@pm2/io');
 const parser = require("./lib/parser");
 
 function isObject(obj) {
@@ -27,7 +26,7 @@ function getObject(param) {
 // fastify uses the built-in AJV instance during serialization, and that
 // instance does not know about int32 and int64 so remove those formats
 // from the responses
-const unknownFormats = { int32: true, int64: true };
+const unknownFormats = {int32: true, int64: true};
 
 function stripResponseFormats(schema) {
   for (let item in schema) {
@@ -42,7 +41,7 @@ function stripResponseFormats(schema) {
 
 async function fastifyOpenapiGlue(instance, opts) {
   const service = getObject(opts.service);
-		if (!isObject(service)) {
+  if (!isObject(service)) {
     throw new Error("'service' parameter must refer to an object");
   }
 
@@ -64,55 +63,55 @@ async function fastifyOpenapiGlue(instance, opts) {
     routeConf.prefix = config.prefix;
   }
 
-		/**
-		 * @param request {request}
-		 * @param entity {string} name of object or field, used for error handling
-		 * @return {Promise.<void>}
-		 */
-	async function checkJWT(request, entity) {
-			if (!('authorization' in request.headers)) throw new Error(`Missing authorization header for ${entity}`);
-			const token = request.headers['authorization'].split(' ')[1];
-			let payload;
+  /**
+   * @param request {request}
+   * @param entity {string} name of object or field, used for error handling
+   * @return {Promise.<void>}
+   */
+  async function checkJWT(request, entity) {
+    if (!('authorization' in request.headers)) throw new Error(`Missing authorization header for ${entity}`);
+    const token = request.headers['authorization'].split(' ')[1];
+    let payload;
 
-			// check if the token is expired or broken
-			try {
-					payload = jwt.verify(token, global.PUBLIC_KEY, {algorithm:  "RS256"});
-			} catch (err) {
-					throw new Error(`${err.name} ${err.message} for ${entity}`);
-			}
+    // check if the token is expired or broken
+    try {
+      payload = jwt.verify(token, global.PUBLIC_KEY, {algorithm: "RS256"});
+    } catch (err) {
+      throw new Error(`${err.name} ${err.message} for ${entity}`);
+    }
 
-			const {IpList, Role} =  payload;
+    const {IpList, Role} = payload;
 
-			// check that client IP in token range
-			if (IpList && IpList.length) {
-			  const ipInAllowedRange = IpList.some(ipRange => ip.cidrSubnet(ipRange).contains(request.req.ip));
-				if (!ipInAllowedRange) throw new Error('IP address if out of range you permit for') ;
-			}
+    // check that client IP in token range
+    if (IpList && IpList.length) {
+      const ipInAllowedRange = IpList.some(ipRange => ip.cidrSubnet(ipRange).contains(request.req.ip));
+      if (!ipInAllowedRange) throw new Error('IP address if out of range you permit for');
+    }
 
-			request.Roles = Role;
-	}
+    request.Roles = Role;
+  }
 
-	async function checkAccess(request, item) {
-			if (item.schema) {
-					const schema = item.schema;
-					// TODO extend rule for more x-auth-type
-					const xAuthTypes = item.openapiSource['x-AuthType'];
-					if (xAuthTypes.length && !xAuthTypes.some(el => el === "None")) {
-							request.xAuthTypes = xAuthTypes;
-							await checkJWT(request, schema.operationId);
-					}
-					// TODO remove after debug
-					if (schema && schema.body) {
-							const properties = schema.body.properties;
-							for (const key in properties) {
-									if (!properties.hasOwnProperty(key)) continue;
-									if (properties[key]['x-AuthFieldType']) {
-											console.log(properties[key], key);
-									}
-							}
-					}
-			}
-	}
+  async function checkAccess(request, item) {
+    if (item.schema) {
+      const schema = item.schema;
+      // TODO extend rule for more x-auth-type
+      const xAuthTypes = item.openapiSource['x-AuthType'];
+      if (xAuthTypes.length && !xAuthTypes.some(el => el === "None")) {
+        request.xAuthTypes = xAuthTypes;
+        await checkJWT(request, schema.operationId);
+      }
+      // TODO remove after debug
+      if (schema && schema.body) {
+        const properties = schema.body.properties;
+        for (const key in properties) {
+          if (!properties.hasOwnProperty(key)) continue;
+          if (properties[key]['x-AuthFieldType']) {
+            console.log(properties[key], key);
+          }
+        }
+      }
+    }
+  }
 
   async function generateRoutes(routesInstance, opt) {
     config.routes.forEach(item => {
@@ -122,23 +121,18 @@ async function fastifyOpenapiGlue(instance, opts) {
       }
 
       if (service[item.operationId]) {
-        routesInstance.log.debug("service has", item.operationId);
-		    const controllerName = item.operationId;
-
-		    if (opts.metricItems) {
-		    		opts.metricItems[`${controllerName}_failed`] = pm2io.meter({name: `${controllerName}[failed]`, type: 'meter'});
-				    opts.metricItems[`${controllerName}_success`] = pm2io.meter({name: `${controllerName}[success]`, type: 'meter'});
-		    }
-
-		    const reqSec = pm2io.meter({name: `${item.operationId}[total]`, type: 'meter'});
+        const controllerName = item.operationId;
+        routesInstance.log.debug("service has", controllerName);
+        const reqSec = pm2io.meter({name: `${item.operationId}[total]`, type: 'meter'});
         item.preValidation = async (request, reply, done) => {
-				      reqSec.mark();
-				      request.controllerName = item.operationId;
-				      if (global.CHECK_TOKEN) await checkAccess(request, item);
-		    };
-        item.preHandler = async (request, reply, done) => {};
+          if (opts.metrics && opts.metrics[`${controllerName}${opts.metrics.suffix.total}`]) {
+            opts.metrics[`${controllerName}${opts.metrics.suffix.total}`].mark();
+          }
+          request.controllerName = controllerName;
+          if (global.CHECK_TOKEN) await checkAccess(request, item);
+        };
         item.handler = async (request, reply) => {
-		      return service[item.operationId](request, reply);
+          return service[item.operationId](request, reply);
         };
       } else {
         item.handler = async (request, reply) => {
