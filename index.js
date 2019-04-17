@@ -69,7 +69,11 @@ async function fastifyOpenapiGlue(instance, opts) {
    * @return {Promise.<void>}
    */
   async function checkJWT(request, entity) {
-    if (!('authorization' in request.headers)) throw new Error(`Missing authorization header for ${entity}`);
+    if (!('authorization' in request.headers)) {
+      const message = `Missing authorization header for ${entity}`;
+      await global.mq.openapiFailures(request, null, message);
+      throw new Error(message);
+    }
     const token = request.headers['authorization'].split(' ')[1];
     let payload;
 
@@ -77,7 +81,9 @@ async function fastifyOpenapiGlue(instance, opts) {
     try {
       payload = jwt.verify(token, global.PUBLIC_KEY, {algorithm: "RS256"});
     } catch (err) {
-      throw new Error(`${err.name} ${err.message} for ${entity}`);
+      const message = `${err.name} ${err.message} for ${entity}`;
+      await global.mq.openapiFailures(request, null, message);
+      throw new Error(message);
     }
 
     const {IpList, Role} = payload;
@@ -85,10 +91,19 @@ async function fastifyOpenapiGlue(instance, opts) {
     // check that client IP in token range
     if (IpList && IpList.length) {
       const ipInAllowedRange = IpList.some(ipRange => ip.cidrSubnet(ipRange).contains(request.req.ip));
-      if (!ipInAllowedRange) throw new Error('IP address if out of range you permit for');
+      if (!ipInAllowedRange) {
+        const message = 'IP address if out of range you permit for';
+        await global.mq.openapiFailures(request, payload, message);
+        throw new Error(message);
+      }
     }
 
     request.Roles = Role;
+
+    // send requet message to the AMQP if everything's fine
+    if (global.mq) {
+      global.mq.openapiRequests(request, payload);
+    }
   }
 
   async function checkAccess(request, item) {
