@@ -99,6 +99,8 @@ async function fastifyOpenapiGlue(instance, opts) {
     }
 
     request.Roles = Role;
+    request.EntityId = payload.EntityId || 'not provided';
+    request.EntityType = payload.EntityType || 'not provided';
 
     // send requet message to the AMQP if everything's fine
     if (global.mq) {
