@@ -26,7 +26,7 @@ function getObject(param) {
 // fastify uses the built-in AJV instance during serialization, and that
 // instance does not know about int32 and int64 so remove those formats
 // from the responses
-const unknownFormats = {int32: true, int64: true};
+const unknownFormats = { int32: true, int64: true };
 
 function stripResponseFormats(schema) {
   for (let item in schema) {
@@ -79,14 +79,14 @@ async function fastifyOpenapiGlue(instance, opts) {
 
     // check if the token is expired or broken
     try {
-      payload = jwt.verify(token, global.PUBLIC_KEY, {algorithm: "RS256"});
+      payload = jwt.verify(token, global.PUBLIC_KEY, { algorithm: "RS256" });
     } catch (err) {
       const message = `${err.name} ${err.message} for ${entity}`;
       await global.mq.openapiFailures(request, null, message);
       throw new Error(message);
     }
 
-    const {IpList, Role} = payload;
+    const { IpList, Role } = payload;
 
     // check that client IP in token range
     if (IpList && IpList.length) {
@@ -117,16 +117,6 @@ async function fastifyOpenapiGlue(instance, opts) {
         request.xAuthTypes = xAuthTypes;
         await checkJWT(request, schema.operationId);
       }
-      // TODO remove after debug
-      if (schema && schema.body) {
-        const properties = schema.body.properties;
-        for (const key in properties) {
-          if (!properties.hasOwnProperty(key)) continue;
-          if (properties[key]['x-AuthFieldType']) {
-            console.log(properties[key], key);
-          }
-        }
-      }
     }
   }
 
@@ -136,7 +126,6 @@ async function fastifyOpenapiGlue(instance, opts) {
       if (response) {
         stripResponseFormats(response);
       }
-
       if (service[item.operationId]) {
         const controllerName = item.operationId;
         routesInstance.log.debug("service has", controllerName);
@@ -145,7 +134,16 @@ async function fastifyOpenapiGlue(instance, opts) {
             opts.metrics[`${controllerName}${opts.metrics.suffix.total}`].mark();
           }
           request.controllerName = controllerName;
-          if (global.CHECK_TOKEN) await checkAccess(request, item);
+          try {
+            if (global.CHECK_TOKEN) await checkAccess(request, item);
+          } catch (error) {
+            if (error.message.split(' ').includes('expired')) {
+              reply.code(440).send({ 'Status': '440', 'Description': `${error.message}` });
+            }
+            else {
+              reply.code(401).send({ 'Status': '401', 'Description': `${error.message}` });
+            }
+          }
         };
         item.handler = async (request, reply) => {
           return service[item.operationId](request, reply);
