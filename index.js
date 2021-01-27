@@ -138,10 +138,10 @@ async function fastifyOpenapiGlue(instance, opts) {
             if (global.CHECK_TOKEN) await checkAccess(request, item);
           } catch (error) {
             if (error.message.split(' ').includes('expired')) {
-              reply.code(440).send({ 'Status': '440', 'Description': `${error.message}` });
+              reply.code(440).send({ 'Status': 440, 'Description': `${error.message}` });
             }
             else {
-              reply.code(401).send({ 'Status': '401', 'Description': `${error.message}` });
+              reply.code(401).send({ 'Status': 401, 'Description': `${error.message}` });
             }
           }
         };
