@@ -41,7 +41,7 @@ function stripResponseFormats(schema) {
 
 async function fastifyOpenapiGlue(instance, opts) {
   const service = getObject(opts.service);
-		if (!isObject(service)) {
+  if (!isObject(service)) {
     throw new Error("'service' parameter must refer to an object");
   }
 
@@ -63,66 +63,89 @@ async function fastifyOpenapiGlue(instance, opts) {
     routeConf.prefix = config.prefix;
   }
 
-		/**
-		 * @param request {request}
-		 * @param entity {string} name of object or field, used for error handling
-		 * @return {Promise.<void>}
-		 */
-	async function checkJWT(request, entity) {
-			if (!('authorization' in request.headers)) throw new Error(`Missing authorization header for ${entity}`);
-			const token = request.headers['authorization'].split(' ')[1];
-			let payload;
+  /**
+   * @param request {request}
+   * @param entity {string} name of object or field, used for error handling
+   * @return {Promise.<void>}
+   */
+  async function checkJWT(request, entity) {
+    if (!('authorization' in request.headers)) {
+      const message = `Missing authorization header for ${entity}`;
+      await global.mq.openapiFailures(request, null, message);
+      throw new Error(message);
+    }
+    const token = request.headers['authorization'].split(' ')[1];
+    let payload;
 
-			// check if the token is expired or broken
-			try {
-					payload = jwt.verify(token, global.PUBLIC_KEY, {algorithm:  "RS256"});
-			} catch (err) {
-					throw new Error(`${err.name} ${err.message} for ${entity}`);
-			}
+    // check if the token is expired or broken
+    try {
+      payload = jwt.verify(token, global.PUBLIC_KEY, { algorithm: "RS256" });
+    } catch (err) {
+      const message = `${err.name} ${err.message} for ${entity}`;
+      await global.mq.openapiFailures(request, null, message);
+      throw new Error(message);
+    }
 
-			const {IpList, Role} =  payload;
+    const { IpList, Role } = payload;
 
-			// check that client IP in token range
-			if (IpList && IpList.length) {
-			  const ipInAllowedRange = IpList.some(ipRange => ip.cidrSubnet(ipRange).contains(request.req.ip));
-				if (!ipInAllowedRange) throw new Error('IP address if out of range you permit for') ;
-			}
+    // check that client IP in token range
+    if (IpList && IpList.length) {
+      const ipInAllowedRange = IpList.some(ipRange => ip.cidrSubnet(ipRange).contains(request.req.ip));
+      if (!ipInAllowedRange) {
+        const message = 'IP address if out of range you permit for';
+        await global.mq.openapiFailures(request, payload, message);
+        throw new Error(message);
+      }
+    }
 
-			request.Roles = Role;
-	}
+    request.Roles = Role;
+    request.EntityId = payload.EntityId || 'not provided';
+    request.EntityType = payload.EntityType || 'not provided';
 
-	async function checkAccess(request, item) {
-			if (item.schema) {
-					const schema = item.schema;
-					// TODO extend rule for more x-auth-type
-					const xAuthTypes = item.openapiSource['x-AuthType'];
-					if (xAuthTypes.length && !xAuthTypes.some(el => el === "None")) {
-							request.xAuthTypes = xAuthTypes;
-							await checkJWT(request, schema.operationId);
-					}
-					// TODO remove after debug
-					if (schema && schema.body) {
-							const properties = schema.body.properties;
-							for (const key in properties) {
-									if (!properties.hasOwnProperty(key)) continue;
-									if (properties[key]['x-AuthFieldType']) {
-											console.log(properties[key], key);
-									}
-							}
-					}
-			}
-	}
+    // send requet message to the AMQP if everything's fine
+    if (global.mq) {
+      global.mq.openapiRequests(request, payload);
+    }
+  }
 
-  async function generateRoutes(routesInstance, opts) {
+  async function checkAccess(request, item) {
+    if (item.schema) {
+      const schema = item.schema;
+      // TODO extend rule for more x-auth-type
+      const xAuthTypes = item.openapiSource['x-AuthType'];
+      if (xAuthTypes.length && !xAuthTypes.some(el => el === "None")) {
+        request.xAuthTypes = xAuthTypes;
+        await checkJWT(request, schema.operationId);
+      }
+    }
+  }
+
+  async function generateRoutes(routesInstance, opt) {
     config.routes.forEach(item => {
       const response = item.schema.response;
       if (response) {
         stripResponseFormats(response);
       }
       if (service[item.operationId]) {
-        routesInstance.log.debug("service has", item.operationId    );
+        const controllerName = item.operationId;
+        routesInstance.log.debug("service has", controllerName);
+        item.preValidation = async (request, reply, done) => {
+          if (opts.metrics && opts.metrics[`${controllerName}${opts.metrics.suffix.total}`]) {
+            opts.metrics[`${controllerName}${opts.metrics.suffix.total}`].mark();
+          }
+          request.controllerName = controllerName;
+          try {
+            if (global.CHECK_TOKEN) await checkAccess(request, item);
+          } catch (error) {
+            if (error.message.split(' ').includes('expired')) {
+              reply.code(440).send({ 'Status': 440, 'Description': `${error.message}` });
+            }
+            else {
+              reply.code(401).send({ 'Status': 401, 'Description': `${error.message}` });
+            }
+          }
+        };
         item.handler = async (request, reply) => {
-		      if (global.CHECK_TOKEN) await checkAccess(request, item);
           return service[item.operationId](request, reply);
         };
       } else {
